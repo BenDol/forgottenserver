@@ -22,6 +22,7 @@
 
 #include <boost/lexical_cast.hpp>
 
+#include "databasemanager.h"
 #include <mysql.h>
 
 class DBResult;
@@ -135,6 +136,7 @@ class Database
 		uint64_t maxPacketSize;
 
 	friend class DBTransaction;
+	friend class DatabaseManager;
 };
 
 class DBResult

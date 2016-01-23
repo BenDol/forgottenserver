@@ -329,7 +329,7 @@ Tile* Item::getTile()
 {
 	Cylinder* cylinder = getTopParent();
 	//get root cylinder
-	if (cylinder->getParent()) {
+	if (cylinder && cylinder->getParent()) {
 		cylinder = cylinder->getParent();
 	}
 	return dynamic_cast<Tile*>(cylinder);
@@ -339,7 +339,7 @@ const Tile* Item::getTile() const
 {
 	const Cylinder* cylinder = getTopParent();
 	//get root cylinder
-	if (cylinder->getParent()) {
+	if (cylinder && cylinder->getParent()) {
 		cylinder = cylinder->getParent();
 	}
 	return dynamic_cast<const Tile*>(cylinder);
@@ -803,7 +803,7 @@ uint32_t Item::getWeight() const
 }
 
 std::string Item::getDescription(const ItemType& it, int32_t lookDistance,
-                                 const Item* item /*= nullptr*/, int32_t subType /*= -1*/, bool addArticle /*= true*/)
+								 const Item* item /*= nullptr*/, int32_t subType /*= -1*/, bool addArticle /*= true*/)
 {
 	const std::string* text = nullptr;
 

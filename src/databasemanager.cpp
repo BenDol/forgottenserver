@@ -23,6 +23,12 @@
 #include "databasemanager.h"
 #include "luascript.h"
 
+#include <iostream>
+#include <fstream>
+
+#include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
+
 extern ConfigManager g_config;
 
 bool DatabaseManager::optimizeTables()
@@ -72,14 +78,27 @@ bool DatabaseManager::isDatabaseSetup()
 int32_t DatabaseManager::getDatabaseVersion()
 {
 	if (!tableExists("server_config")) {
-		Database* db = Database::getInstance();
-		db->executeQuery("CREATE TABLE `server_config` (`config` VARCHAR(50) NOT nullptr, `value` VARCHAR(256) NOT nullptr DEFAULT '', UNIQUE(`config`)) ENGINE = InnoDB");
-		db->executeQuery("INSERT INTO `server_config` VALUES ('db_version', 0)");
 		return 0;
 	}
 
 	int32_t version = 0;
 	if (getDatabaseConfig("db_version", version)) {
+		return version;
+	}
+	return -1;
+}
+
+int32_t DatabaseManager::getDatabaseSQLVersion()
+{
+	if (!tableExists("server_config")) {
+		Database* db = Database::getInstance();
+		db->executeQuery("CREATE TABLE `server_config` (`config` VARCHAR(50) NOT nullptr, `value` VARCHAR(256) NOT nullptr DEFAULT '', UNIQUE(`config`)) ENGINE = InnoDB");
+		db->executeQuery("INSERT INTO `server_config` VALUES ('db_sql_version', 0)");
+		return 0;
+	}
+
+	int32_t version = 0;
+	if (getDatabaseConfig("db_sql_version", version)) {
 		return version;
 	}
 	return -1;
@@ -138,6 +157,129 @@ void DatabaseManager::updateDatabase()
 		LuaScriptInterface::resetScriptEnv();
 	} while (true);
 	lua_close(L);
+}
+
+int32_t DatabaseManager::applySQLMigrations()
+{
+	Database* db = Database::getInstance();
+	int32_t version = getDatabaseSQLVersion();
+	if(version < 0) {
+		return 0;
+	}
+
+	std::string dir = "db/migrations/";
+	StringVec files = loadMigrationFiles(dir);
+
+	std::sort(files.begin(), files.end());
+	for(StringVec::iterator it = files.begin(); it != files.end(); ++it) {
+		std::string file = (*it).substr(1,1);
+		if(isNumbers(file)) {
+			int32_t mversion = atoi(file.c_str());
+			if(mversion > version) {
+				std::ifstream ifs;
+				ifs.open(dir + (*it), std::ifstream::in);
+
+				// get length of file:
+				ifs.seekg (0, ifs.end);
+				int32_t length = ifs.tellg();
+				ifs.seekg (0, ifs.beg);
+
+				char* buffer = new char [length];
+				ifs.read(buffer,length);
+				ifs.close();
+
+				std::clog << "> Migrating to database version ." << file << "...";
+
+				std::string content = db->escapeBlob(buffer, length);
+				replaceString(content, "\\n", " ");
+				replaceString(content, "\t", "");
+				replaceString(content, "\\", "");
+				stripUnicode(content);
+				content = content.substr(1, content.length()-2);
+				boost::algorithm::trim(content);
+
+				bool passed = true;
+
+				StringVec triggers = gatherMigrationTriggers(content);
+				StringVec queries = split(content, ';');
+
+				delete[] buffer;
+
+				// Start the migration file transaction
+				if(db->beginTransaction()) {
+					// Process the migration queries
+					for(StringVec::iterator itt = queries.begin(); itt != queries.end(); ++itt) {
+						std::string query = (*itt);
+						boost::algorithm::trim(query);
+						if(!query.empty() && !db->executeQuery(query + ";")) {
+							passed = false;
+							break;
+						}
+					}
+					// Process the migration triggers
+					if(passed) {
+						for(StringVec::iterator itt = triggers.begin(); itt != triggers.end(); ++itt) {
+							std::string trigger = (*itt);
+							boost::algorithm::trim(trigger);
+							if(!trigger.empty() && !db->executeQuery(trigger + ";")) {
+								passed = false;
+								break;
+							}
+						}
+					}
+
+					if(passed) {
+						version = mversion;
+
+						registerDatabaseConfig("db_sql_version", version);
+						if(db->commit())
+							std::clog << " Success!" << std::endl;
+						else
+							db->rollback();
+					} else {
+						std::clog << " Failed";
+						if(db->rollback())
+							std::clog << ", rolled back." << std::endl;
+						else
+							std::clog << std::endl;
+					}
+				}
+			}
+		}
+	}
+	return version;
+}
+
+StringVec DatabaseManager::gatherMigrationTriggers(std::string& content) {
+	StringVec triggers;
+
+	std::size_t delimiterStart = content.find("DELIMITER |");
+	if(delimiterStart != std::string::npos) {
+		std::size_t delimiterEnd = content.find("DELIMITER ;");
+		if(delimiterEnd != std::string::npos) {
+			std::string triggerStr = content.substr(delimiterStart+11, delimiterEnd-(delimiterStart+11));
+			boost::algorithm::trim(triggerStr);
+			triggers = split(triggerStr, '|');
+
+			// Remove the triggers from the content
+			content = content.replace(delimiterStart, (delimiterEnd+11)-delimiterStart, "");
+		} else {
+			std::clog << "Failed to find the end DELIMITER placeholder.";
+		}
+	}
+	return triggers;
+}
+
+StringVec DatabaseManager::loadMigrationFiles(std::string dir) {
+	StringVec files;
+
+	for(boost::filesystem::directory_iterator it(dir), end; it != end; ++it) {
+		std::string s = (it)->path().filename().string();
+
+		if((s.size() > 4 ? s.substr(s.size() - 4) : "") == ".sql")
+			files.push_back(s);
+	}
+	return files;
 }
 
 bool DatabaseManager::getDatabaseConfig(const std::string& config, int32_t& value)

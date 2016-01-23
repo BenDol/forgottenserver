@@ -183,13 +183,23 @@ void mainLoader(int, char*[], ServiceManager* services)
 	// run database manager
 	std::cout << ">> Running database manager" << std::endl;
 
+	g_databaseTasks.start();
+
+	int32_t sqlVersion = DatabaseManager::applySQLMigrations();
+	DatabaseManager::updateDatabase();
+	int32_t dbVersion = DatabaseManager::getDatabaseVersion();
+
+	std::clog << ">>> Database is now on version " << dbVersion << "." << sqlVersion << std::endl;
+
 	if (!DatabaseManager::isDatabaseSetup()) {
 		startupErrorMessage("The database you have specified in config.lua is empty, please import the schema.sql to your database.");
 		return;
 	}
-	g_databaseTasks.start();
 
-	DatabaseManager::updateDatabase();
+	if (!DatabaseManager::tableExists("server_config")) {
+		db->executeQuery("CREATE TABLE `server_config` (`config` VARCHAR(50) NOT nullptr, `value` VARCHAR(256) NOT nullptr DEFAULT '', UNIQUE(`config`)) ENGINE = InnoDB");
+		db->executeQuery("INSERT INTO `server_config` VALUES ('db_version', 0)");
+	}
 
 	if (g_config.getBoolean(ConfigManager::OPTIMIZE_DATABASE) && !DatabaseManager::optimizeTables()) {
 		std::cout << "> No tables were optimized." << std::endl;

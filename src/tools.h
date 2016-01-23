@@ -57,6 +57,17 @@ Direction getDirectionTo(const Position& from, const Position& to);
 
 std::string getFirstLine(const std::string& str);
 
+std::string fromDataPath(std::string name = "");
+
+bool isNumber(char character);
+bool isNumbers(std::string text);
+
+StringVec& split(const std::string& s, char delim, StringVec& elems);
+StringVec split(const std::string& s, char delim);
+
+bool isUnicode(char c);
+void stripUnicode(std::string& str);
+
 std::string formatDate(time_t time);
 std::string formatDateShort(time_t time);
 std::string convertIPToString(uint32_t ip);

@@ -21,16 +21,23 @@
 #define FS_DATABASEMANAGER_H_2B75821C555E4D1D83E32B20D683217C
 #include "database.h"
 
+#include "tools.h"
+
 class DatabaseManager
 {
 	public:
 		static bool tableExists(const std::string& table);
 
 		static int32_t getDatabaseVersion();
+		static int32_t getDatabaseSQLVersion();
 		static bool isDatabaseSetup();
 
 		static bool optimizeTables();
 		static void updateDatabase();
+		static int32_t applySQLMigrations();
+
+		static StringVec gatherMigrationTriggers(std::string& content);
+		static StringVec loadMigrationFiles(std::string dir);
 
 		static bool getDatabaseConfig(const std::string& config, int32_t& value);
 		static void registerDatabaseConfig(const std::string& config, int32_t value);
